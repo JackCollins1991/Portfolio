@@ -1,0 +1,74 @@
+<article class="guide">
+  <carousel class="deck container-fluid">
+    <slide class="row-fluid">
+      <div class="col-sm-3">
+        <h3>Title two</h3>
+        <p class="lead">Second lead</p>
+      </div>
+      <div class="col-sm-9">
+        <figure>
+          <pre class="pre-scrollable code runnable">// Create Nodes and Relationships from JSON
+WITH "https://www.smogon.com/stats/2020-10/chaos/gen8ou-1825.json" AS url
+CALL apoc.load.json(url) YIELD value
+UNWIND value.data as d
+FOREACH (name in keys(d) | CREATE (pokemon:Pokemon {id: name, teammates: keys(d[name].Teammates)}))
+With value 
+UNWIND keys(value.data) as name
+MATCH (a:Pokemon) WHERE a.id = name
+UNWIND a.teammates as tm
+MATCH (b:Pokemon) WHERE b.id = tm
+CREATE (a)-[r:Teammate {name: a.id +'<->'+b.id, weight: value.data[a.id].Teammates[b.id]}]->(b)</pre>
+        </figure>
+        <figure>
+          <pre class="pre-scrollable code runnable">// Cull Relationships where weight is below a threshold
+With 40 as threshold
+MATCH p=()-[r:Teammate]->() WHERE r.weight < threshold DELETE r</pre>
+        </figure>
+        <figure>
+          <pre class="pre-scrollable code runnable">//  Scaling weights before community detection algorithm
+MATCH ()-[r:Teammate]->() WITH toFloat(max(r.weight)) as max
+MATCH ()-[r:Teammate]->() SET r.nweight = toFloat(r.weight) / max</pre>
+        </figure>
+        <figure>
+          <pre class="pre-scrollable code runnable">// Create a named graph with gdc package
+CALL gds.graph.create(
+    'myGraph',
+    'Pokemon',
+    'Teammate',
+    {
+        relationshipProperties: 'nweight'
+    })YIELD graphName</pre>
+        </figure>
+        <figure>
+          <pre class="pre-scrollable code runnable">// Call the Louvian community detetction algorithm on the named graph
+CALL gds.louvain.write('myGraph', { writeProperty: 'community', relationshipWeightProperty: 'nweight' })YIELD communityCount
+</pre>
+        </figure>
+        <figure>
+          <pre class="pre-scrollable code runnable">// Name the community after most central node and return examples
+MATCH (p:Pokemon)
+WITH p, p.community as community, size( (p)-[:Teammate]-() ) as degree ORDER BY community ASC, degree DESC
+WITH community, (head(collect(p))).id as top, count(*) as size, collect(p.id)[0..6] as likleyTeam, collect(p) as all
+ORDER BY size DESC
+FOREACH (p IN all | SET p.communityName = top)</pre>
+        </figure>
+        <figure>
+          <pre class="pre-scrollable code runnable">// Add the community name as a label to each node, which will then color each node in the visualization
+MATCH (p:Pokemon)
+CALL apoc.create.addLabels(p,[p.communityName]) yield node RETURN node</pre>
+        </figure>
+        <figure>
+          <pre class="pre-scrollable code runnable">// Before visualising, we remove the 'Pokemon' label, so neo4j will color code by community
+MATCH (p:Pokemon)
+REMOVE p:Pokemon
+RETURN p.name, labels(p)
+</pre>
+        </figure>
+        <figure>
+          <pre class="pre-scrollable code runnable">// Visualize the graph
+MATCH pkmn=()-[r:Teammate]->() RETURN pkmn</pre>
+        </figure>
+      </div>
+    </slide>
+  </carousel>
+</article>
